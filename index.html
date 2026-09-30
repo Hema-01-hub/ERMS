@@ -3,9 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ERMS – Enterprise Request Management System</title>
+  <title>ERMS – Enterprise Request Management System (Live Multi-Device Cloud)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- GUN.js: Peer-to-peer real-time cloud sync across any device without a custom backend server -->
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gun/sea.js"></script>
   <style>
     body { font-family: 'Inter', sans-serif; }
     .badge-Pending { background: #FEF3C7; color: #B45309; border: 1px solid #FCD34D; }
@@ -32,13 +35,22 @@
           E
         </div>
         <div>
-          <span class="text-xl font-bold tracking-tight">ERMS</span>
-          <span class="text-xs block text-slate-400">Enterprise Request Management System</span>
+          <div class="flex items-center space-x-2">
+            <span class="text-xl font-bold tracking-tight">ERMS</span>
+            <span id="cloud-sync-status" class="text-[10px] bg-emerald-500/20 text-emerald-300 font-mono px-2 py-0.5 rounded-full flex items-center space-x-1">
+              <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
+              <span>Multi-Role Cloud Synced</span>
+            </span>
+          </div>
+          <span class="text-xs block text-slate-400">Enterprise Real-Time Notification & Management System</span>
         </div>
       </div>
       <div id="nav-actions" class="flex items-center space-x-3"></div>
     </div>
   </header>
+
+  <!-- LIVE POPUP TOAST ALERT CONTAINER -->
+  <div id="toast-container" class="fixed top-20 right-4 z-50 flex flex-col space-y-2 pointer-events-none"></div>
 
   <!-- MAIN VIEW CONTAINER -->
   <main id="app-root" class="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6"></main>
@@ -84,7 +96,7 @@
     <div class="bg-white w-full max-w-md h-full shadow-2xl flex flex-col p-5">
       <div class="flex justify-between items-center pb-4 border-b border-slate-200">
         <div>
-          <h3 class="font-bold text-lg text-slate-800">Your Notifications</h3>
+          <h3 class="font-bold text-lg text-slate-800">Role Notifications Center</h3>
           <p id="notif-user-info" class="text-xs text-slate-500"></p>
         </div>
         <button onclick="toggleNotifs()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
@@ -95,95 +107,184 @@
   </div>
 
   <script>
-    // --- DATABASE & PERSISTENCE ---
-    const DB_KEY = 'erms_system_data_v3';
+    // =========================================================================
+    // REAL-TIME CLOUD SYNCHRONIZATION ACROSS MULTIPLE DEVICES VIA GUN.JS
+    // =========================================================================
+    const gun = Gun([
+      'https://gun-manhattan.herokuapp.com/gun',
+      'https://relay.peer.ooo/gun'
+    ]);
 
-    function initDB() {
-      if (!localStorage.getItem(DB_KEY)) {
-        const initialData = {
-          currentUser: null,
-          users: [
-            { id: 1, name: 'Sarah Jenkins', email: 'sarah@enterprise.com', password: 'password123', role: 'requester', department: 'Product Marketing' },
-            { id: 2, name: 'David Miller', email: 'david@enterprise.com', password: 'password123', role: 'manager', department: 'Operations' },
-            { id: 3, name: 'Alex Rivera', email: 'alex@enterprise.com', password: 'password123', role: 'technician', department: 'IT Hardware Support', status: 'Available' },
-            { id: 4, name: 'Maria Santos', email: 'maria@enterprise.com', password: 'password123', role: 'technician', department: 'Network & Cloud Infrastructure', status: 'Available' }
-          ],
-          requests: [
-            { 
-              id: 101, 
-              title: 'MacBook Pro Screen Glitch', 
-              category: 'Hardware', 
-              priority: 'High', 
-              status: 'Assigned', 
-              location: 'Building A - Main Headquarters (3rd Floor - Marketing)', 
-              requesterId: 1, 
-              requesterName: 'Sarah Jenkins', 
-              requesterDept: 'Product Marketing', 
-              techId: 3, 
-              techName: 'Alex Rivera', 
-              description: 'Screen flashes purple artifacts during Zoom video meetings.', 
-              date: '2026-09-28' 
-            },
-            { 
-              id: 102, 
-              title: 'VPN Certificate Renewal', 
-              category: 'Network', 
-              priority: 'Critical', 
-              status: 'Pending', 
-              location: 'Remote / Home Office', 
-              requesterId: 1, 
-              requesterName: 'Sarah Jenkins', 
-              requesterDept: 'Product Marketing', 
-              techId: null, 
-              techName: null, 
-              description: 'Cannot reach production analytics cluster while working remotely.', 
-              date: '2026-09-29' 
-            }
-          ],
-          notifications: [
-            { id: 1, targetUserId: 1, text: 'Welcome to ERMS. Track your request updates in real-time.', date: 'Just now', read: false },
-            { id: 2, targetUserId: 3, text: 'Ticket #101 (MacBook Pro Screen Glitch) has been assigned to you.', date: 'Just now', read: false }
-          ]
-        };
-        localStorage.setItem(DB_KEY, JSON.stringify(initialData));
-      }
+    const SHARED_ORG_KEY = 'erms_enterprise_shared_v2';
+    const gunDB = gun.get(SHARED_ORG_KEY);
+
+    let memoryDB = {
+      currentUser: null,
+      users: [
+        { id: 1, name: 'Sarah Jenkins', email: 'sarah@enterprise.com', password: 'password123', role: 'requester', department: 'Product Marketing' },
+        { id: 2, name: 'David Miller', email: 'david@enterprise.com', password: 'password123', role: 'manager', department: 'Operations' },
+        { id: 3, name: 'Alex Rivera', email: 'alex@enterprise.com', password: 'password123', role: 'technician', department: 'IT Hardware Support', status: 'Available' },
+        { id: 4, name: 'Maria Santos', email: 'maria@enterprise.com', password: 'password123', role: 'technician', department: 'Network & Cloud Infrastructure', status: 'Available' }
+      ],
+      requests: [
+        { 
+          id: 101, 
+          title: 'MacBook Pro Screen Glitch', 
+          category: 'Hardware', 
+          priority: 'High', 
+          status: 'Assigned', 
+          location: 'Building A - Main Headquarters, 3rd Floor (Marketing)', 
+          requesterId: 1, 
+          requesterName: 'Sarah Jenkins', 
+          requesterDept: 'Product Marketing', 
+          techId: 3, 
+          techName: 'Alex Rivera', 
+          description: 'Screen flashes purple artifacts during Zoom video meetings.', 
+          date: '2026-09-28' 
+        },
+        { 
+          id: 102, 
+          title: 'VPN Certificate Renewal', 
+          category: 'Network', 
+          priority: 'Critical', 
+          status: 'Pending', 
+          location: 'Remote / Home Office', 
+          requesterId: 1, 
+          requesterName: 'Sarah Jenkins', 
+          requesterDept: 'Product Marketing', 
+          techId: null, 
+          techName: null, 
+          description: 'Cannot reach production analytics cluster while working remotely.', 
+          date: '2026-09-29' 
+        }
+      ],
+      notifications: [
+        { id: 1, targetUserId: 1, targetRole: 'requester', text: '👤 Requester Alert: Welcome to ERMS! You will receive live alerts as your tickets change states.', date: 'Just now', read: false },
+        { id: 2, targetUserId: 2, targetRole: 'manager', text: '📊 Manager Alert: Pending Request #102 at Remote / Home Office is waiting for your technician assignment.', date: 'Just now', read: false },
+        { id: 3, targetUserId: 3, targetRole: 'technician', text: '🛠️ Technician Alert: Ticket #101 (MacBook Pro Screen Glitch) is assigned to you.', date: 'Just now', read: false }
+      ]
+    };
+
+    const savedUser = localStorage.getItem('erms_saved_user');
+    if (savedUser) {
+      try { memoryDB.currentUser = JSON.parse(savedUser); } catch(e){}
     }
-    initDB();
 
-    function getDB() { return JSON.parse(localStorage.getItem(DB_KEY)); }
-    function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+    let seenNotificationIds = new Set();
 
-    function addNotification(targetUserId, text) {
-      const db = getDB();
-      db.notifications.unshift({
+    gunDB.get('state').on((cloudData) => {
+      if (cloudData) {
+        try {
+          const parsed = JSON.parse(cloudData);
+          if (parsed && parsed.requests && parsed.users) {
+            const previousCount = (memoryDB.notifications || []).length;
+            memoryDB.requests = parsed.requests;
+            memoryDB.users = parsed.users;
+            memoryDB.notifications = parsed.notifications || memoryDB.notifications;
+
+            if (memoryDB.currentUser && memoryDB.notifications.length > previousCount) {
+              const myUnread = getMyNotifications(memoryDB.currentUser).filter(n => !n.read && !seenNotificationIds.has(n.id));
+              if (myUnread.length > 0) {
+                myUnread.forEach(n => {
+                  seenNotificationIds.add(n.id);
+                  showToast(n.text);
+                });
+              }
+            }
+
+            refreshCurrentView();
+          }
+        } catch(err) {
+          console.error("Cloud parse error:", err);
+        }
+      }
+    });
+
+    function pushStateToCloud() {
+      const payload = {
+        users: memoryDB.users,
+        requests: memoryDB.requests,
+        notifications: memoryDB.notifications
+      };
+      gunDB.get('state').put(JSON.stringify(payload));
+    }
+
+    gunDB.get('state').once((data) => {
+      if (!data) {
+        pushStateToCloud();
+      }
+    });
+
+    function addNotification(targetUserId, targetRole, text) {
+      const newNotif = {
         id: Date.now() + Math.floor(Math.random() * 1000),
         targetUserId: targetUserId,
+        targetRole: targetRole,
         text: text,
         date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         read: false
-      });
-      saveDB(db);
+      };
+      memoryDB.notifications.unshift(newNotif);
+      pushStateToCloud();
+
+      if (memoryDB.currentUser && (memoryDB.currentUser.id === targetUserId || memoryDB.currentUser.role === targetRole || targetRole === 'all')) {
+        showToast(text);
+      }
     }
 
     function getMyNotifications(user) {
       if (!user) return [];
-      const db = getDB();
-      return db.notifications.filter(n => n.targetUserId === user.id || n.targetUserId === null || (user.role === 'manager' && n.targetRole === 'manager'));
+      return memoryDB.notifications.filter(n => 
+        n.targetUserId === user.id || 
+        n.targetRole === user.role || 
+        n.targetRole === 'all'
+      );
     }
 
-    // --- NAVIGATION CONTROLLER ---
+    function showToast(message) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'pointer-events-auto bg-slate-900 border border-slate-700 text-white text-xs px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 transition-all duration-300 transform translate-y-2 opacity-0 max-w-sm';
+      toast.innerHTML = `
+        <span class="text-base">🔔</span>
+        <div class="flex-1 font-medium leading-snug">${message}</div>
+      `;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 50);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    let currentActiveView = 'landing';
+    let currentActiveParam = null;
+
+    function refreshCurrentView() {
+      if (currentActiveView !== 'auth') {
+        showView(currentActiveView, currentActiveParam);
+      }
+    }
+
     function showView(view, param = null) {
-      const db = getDB();
+      currentActiveView = view;
+      currentActiveParam = param;
+
       const root = document.getElementById('app-root');
       const nav = document.getElementById('nav-actions');
 
-      if (db.currentUser) {
-        const u = db.currentUser;
+      if (memoryDB.currentUser) {
+        const u = memoryDB.currentUser;
         const myNotifs = getMyNotifications(u);
         const unreadCount = myNotifs.filter(n => !n.read).length;
 
         nav.innerHTML = `
-          <button onclick="toggleNotifs()" class="relative p-2 text-slate-300 hover:text-white transition" title="Notifications">
+          <button onclick="toggleNotifs()" class="relative p-2 text-slate-300 hover:text-white transition" title="Role Notifications">
             <span class="text-xl">🔔</span>
             ${unreadCount > 0 ? `
               <span class="absolute top-1 right-1 w-5 h-5 bg-red-500 text-[10px] text-white font-bold rounded-full flex items-center justify-center pulse-badge">
@@ -203,24 +304,26 @@
         `;
       }
 
-      if (view === 'landing') renderLanding(root, db);
-      else if (view === 'auth') renderAuth(root, db, param || { role: 'requester', mode: 'login' });
-      else if (view === 'requester_dashboard') renderRequesterDashboard(root, db);
-      else if (view === 'manager_dashboard') renderManagerDashboard(root, db);
-      else if (view === 'technician_dashboard') renderTechnicianDashboard(root, db);
+      if (view === 'landing') renderLanding(root);
+      else if (view === 'auth') renderAuth(root, param || { role: 'requester', mode: 'login' });
+      else if (view === 'requester_dashboard') renderRequesterDashboard(root);
+      else if (view === 'manager_dashboard') renderManagerDashboard(root);
+      else if (view === 'technician_dashboard') renderTechnicianDashboard(root);
     }
 
-    // --- LANDING PAGE ---
-    function renderLanding(root, db) {
-      if (db.currentUser) {
-        showView(db.currentUser.role + '_dashboard');
+    function renderLanding(root) {
+      if (memoryDB.currentUser) {
+        showView(memoryDB.currentUser.role + '_dashboard');
         return;
       }
       root.innerHTML = `
         <div class="text-center py-10 sm:py-16">
-          <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Enterprise System</span>
-          <h1 class="text-3xl sm:text-5xl font-extrabold text-slate-900 mt-4 tracking-tight">Enterprise Request Management</h1>
-          <p class="text-slate-600 max-w-2xl mx-auto mt-3 text-sm sm:text-base">Role-governed operations platform with full ticket lifecycles, precise location dispatch, and cross-dashboard notifications.</p>
+          <div class="inline-flex items-center space-x-2 bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider mb-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+            <span>Live Multi-Device Notifications & Cloud Sync</span>
+          </div>
+          <h1 class="text-3xl sm:text-5xl font-extrabold text-slate-900 mt-2 tracking-tight">Enterprise Request Management</h1>
+          <p class="text-slate-600 max-w-2xl mx-auto mt-3 text-sm sm:text-base">Every role receives real-time notifications: Requesters know when work starts and finishes, Managers are alerted of incoming requests, and Technicians get notified the second they are assigned.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
@@ -228,7 +331,7 @@
             <div>
               <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">👤</div>
               <h3 class="text-xl font-bold text-slate-800">Requester Portal</h3>
-              <p class="text-slate-500 text-xs sm:text-sm mt-2">Submit tickets specifying issue location (building, floor, lab). Receive real-time alerts when your task is completed!</p>
+              <p class="text-slate-500 text-xs sm:text-sm mt-2">Submit tickets with building/office locations. Receives instant notifications when a manager assigns a tech and when the task is resolved!</p>
             </div>
             <div class="mt-6 space-y-2">
               <button onclick="showView('auth', { role: 'requester', mode: 'login' })" class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-semibold text-xs sm:text-sm transition">Sign In as Requester</button>
@@ -239,8 +342,8 @@
           <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between">
             <div>
               <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">📊</div>
-              <h3 class="text-xl font-bold text-slate-800">Manager Portal</h3>
-              <p class="text-slate-500 text-xs sm:text-sm mt-2">Review ticket details and location. Dispatch technicians directly; assigning instantly notifies the technician.</p>
+              <h3 class="text-xl font-bold text-slate-800">Manager Portal (For Your Friend)</h3>
+              <p class="text-slate-500 text-xs sm:text-sm mt-2">Receives instant notifications when new tickets arrive from any requester. Approve, prioritize, and dispatch technicians with 1-click!</p>
             </div>
             <div class="mt-6 space-y-2">
               <button onclick="showView('auth', { role: 'manager', mode: 'login' })" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs sm:text-sm transition">Sign In as Manager</button>
@@ -252,7 +355,7 @@
             <div>
               <div class="w-12 h-12 bg-teal-100 text-teal-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">🛠️</div>
               <h3 class="text-xl font-bold text-slate-800">Technician Terminal</h3>
-              <p class="text-slate-500 text-xs sm:text-sm mt-2">Receive push alerts for newly assigned tickets, view building/room locations, and notify requesters upon completion.</p>
+              <p class="text-slate-500 text-xs sm:text-sm mt-2">Receives immediate sound/toast notifications whenever assigned work orders by a Manager. View location and mark complete.</p>
             </div>
             <div class="mt-6 space-y-2">
               <button onclick="showView('auth', { role: 'technician', mode: 'login' })" class="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-semibold text-xs sm:text-sm transition">Sign In as Technician</button>
@@ -263,8 +366,7 @@
       `;
     }
 
-    // --- AUTH ---
-    function renderAuth(root, db, config) {
+    function renderAuth(root, config) {
       const role = config.role;
       const isSignUp = config.mode === 'signup';
       const roleTheme = {
@@ -278,7 +380,7 @@
           <div class="text-center mb-6">
             <span class="text-xs uppercase font-bold tracking-wider text-${roleTheme.color}-600 bg-${roleTheme.color}-50 px-3 py-1 rounded-full">${roleTheme.label} Portal</span>
             <h2 class="text-2xl font-bold text-slate-900 mt-2">${isSignUp ? 'Create New Account' : 'Sign In with Your Details'}</h2>
-            <p class="text-xs text-slate-500 mt-1">${isSignUp ? 'Enter your custom details to register' : 'Enter your email and password'}</p>
+            <p class="text-xs text-slate-500 mt-1">${isSignUp ? 'Accounts instantly sync to all devices in the cloud' : 'Enter your email and password'}</p>
           </div>
 
           <form onsubmit="handleAuthSubmit(event, '${role}', ${isSignUp})" class="space-y-4">
@@ -330,13 +432,12 @@
       e.preventDefault();
       const email = document.getElementById('auth-email').value.trim().toLowerCase();
       const password = document.getElementById('auth-pass').value.trim();
-      const db = getDB();
 
       if (isSignUp) {
         const name = document.getElementById('auth-name').value.trim();
         const dept = document.getElementById('auth-dept').value.trim();
 
-        if (db.users.some(u => u.email === email)) {
+        if (memoryDB.users.some(u => u.email === email)) {
           alert('An account with this email already exists. Please sign in instead.');
           return;
         }
@@ -351,14 +452,16 @@
           status: role === 'technician' ? 'Available' : undefined
         };
 
-        db.users.push(newUser);
-        db.currentUser = newUser;
-        saveDB(db);
-        addNotification(newUser.id, `Welcome to ERMS, ${name}! Your account has been registered.`);
+        memoryDB.users.push(newUser);
+        memoryDB.currentUser = newUser;
+        localStorage.setItem('erms_saved_user', JSON.stringify(newUser));
+        pushStateToCloud();
+
+        addNotification(newUser.id, role, `Welcome to ERMS, ${name}! Your ${role} profile is online with multi-device notifications.`);
         alert(`Account created successfully! Welcome, ${name}.`);
         showView(role + '_dashboard');
       } else {
-        const found = db.users.find(u => u.email.toLowerCase() === email && u.password === password);
+        const found = memoryDB.users.find(u => u.email.toLowerCase() === email && u.password === password);
         if (!found) {
           alert('Invalid email or password. If you do not have an account, click "Create an account" below.');
           return;
@@ -367,23 +470,21 @@
           alert(`Access Restricted: This account is registered as "${found.role}". Please log in via the ${found.role} portal.`);
           return;
         }
-        db.currentUser = found;
-        saveDB(db);
+        memoryDB.currentUser = found;
+        localStorage.setItem('erms_saved_user', JSON.stringify(found));
         showView(role + '_dashboard');
       }
     }
 
     function logout() {
-      const db = getDB();
-      db.currentUser = null;
-      saveDB(db);
+      memoryDB.currentUser = null;
+      localStorage.removeItem('erms_saved_user');
       showView('landing');
     }
 
-    // --- REQUESTER DASHBOARD ---
-    function renderRequesterDashboard(root, db) {
-      const user = db.currentUser;
-      const myReqs = db.requests.filter(r => r.requesterId === user.id);
+    function renderRequesterDashboard(root) {
+      const user = memoryDB.currentUser;
+      const myReqs = memoryDB.requests.filter(r => r.requesterId === user.id);
 
       root.innerHTML = `
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -399,7 +500,10 @@
         <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div class="p-4 border-b border-slate-100 flex justify-between items-center">
             <span class="font-bold text-slate-800">Your Submitted Requests (${myReqs.length})</span>
-            <span class="text-xs text-slate-400">Includes ticket location and technician status</span>
+            <span class="text-xs text-emerald-600 font-semibold flex items-center space-x-1">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+              <span>Live Cloud Synced to Manager</span>
+            </span>
           </div>
 
           ${myReqs.length === 0 ? `
@@ -440,7 +544,7 @@
                       </td>
                       <td class="p-3"><span class="badge-${r.status} text-xs font-semibold px-2.5 py-0.5 rounded-full">${r.status}</span></td>
                       <td class="p-3 text-xs">
-                        ${r.techName ? `<span class="font-semibold text-teal-700">🛠️ ${r.techName}</span>` : '<span class="text-slate-400 italic">Waiting for assignment</span>'}
+                        ${r.techName ? `<span class="font-semibold text-teal-700">🛠️ ${r.techName}</span>` : '<span class="text-slate-400 italic">Waiting for manager to assign</span>'}
                       </td>
                       <td class="p-3 text-xs text-slate-400">${r.date}</td>
                     </tr>
@@ -451,7 +555,6 @@
           `}
         </div>
 
-        <!-- NEW REQUEST MODAL WITH LOCATION SELECTION -->
         <div id="new-req-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
           <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-200">
             <div class="flex justify-between items-center pb-3 border-b border-slate-100">
@@ -464,7 +567,6 @@
                 <input type="text" id="req-title" required placeholder="Brief summary of what is needed" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500">
               </div>
 
-              <!-- LOCATION SELECTION SECTION -->
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">📍 Select Location / Facility</label>
                 <select id="req-location-select" onchange="handleLocationChange(this.value)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 mb-1.5">
@@ -505,12 +607,12 @@
 
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Detailed Description</label>
-                <textarea id="req-desc" rows="3" required placeholder="Describe the problem, error messages, and any details for the technician..." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"></textarea>
+                <textarea id="req-desc" rows="3" required placeholder="Describe the problem, error messages, and room location details..." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"></textarea>
               </div>
 
               <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button type="button" onclick="closeNewReqModal()" class="px-4 py-2 border rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
-                <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-sm">Submit Request</button>
+                <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-sm">Submit to Cloud</button>
               </div>
             </form>
           </div>
@@ -533,7 +635,6 @@
 
     function submitNewRequest(e) {
       e.preventDefault();
-      const db = getDB();
       const selectLoc = document.getElementById('req-location-select').value;
       const customLoc = document.getElementById('req-location-custom').value.trim();
       const finalLocation = selectLoc === 'Custom' ? (customLoc || 'Custom Location') : selectLoc;
@@ -545,25 +646,23 @@
         priority: document.getElementById('req-prio').value,
         status: 'Pending',
         location: finalLocation,
-        requesterId: db.currentUser.id,
-        requesterName: db.currentUser.name,
-        requesterDept: db.currentUser.department || 'General',
+        requesterId: memoryDB.currentUser.id,
+        requesterName: memoryDB.currentUser.name,
+        requesterDept: memoryDB.currentUser.department || 'General',
         techId: null,
         techName: null,
         description: document.getElementById('req-desc').value.trim(),
         date: new Date().toISOString().split('T')[0]
       };
 
-      db.requests.unshift(newReq);
-      saveDB(db);
+      memoryDB.requests.unshift(newReq);
+      pushStateToCloud();
 
-      // Notify requester
-      addNotification(db.currentUser.id, `Ticket #${newReq.id} ("${newReq.title}") submitted at ${finalLocation}. Awaiting manager review.`);
+      // 1. Notify Requester
+      addNotification(memoryDB.currentUser.id, 'requester', `Ticket #${newReq.id} ("${newReq.title}") submitted at ${finalLocation}. Awaiting manager review.`);
       
-      // Notify managers
-      db.users.filter(u => u.role === 'manager').forEach(mgr => {
-        addNotification(mgr.id, `New Request #${newReq.id} submitted by ${db.currentUser.name} at location: ${finalLocation}.`);
-      });
+      // 2. Notify ALL Managers (including your friend)
+      addNotification(null, 'manager', `🚨 Manager Alert: New Request #${newReq.id} ("${newReq.title}") submitted by ${memoryDB.currentUser.name} at location: ${finalLocation}.`);
 
       closeNewReqModal();
       showView('requester_dashboard');
@@ -572,34 +671,38 @@
     // --- MANAGER COMMAND CENTER ---
     let currentAssignReqId = null;
 
-    function renderManagerDashboard(root, db) {
-      const user = db.currentUser;
-      const technicians = db.users.filter(u => u.role === 'technician');
+    function renderManagerDashboard(root) {
+      const user = memoryDB.currentUser;
+      const technicians = memoryDB.users.filter(u => u.role === 'technician');
 
       root.innerHTML = `
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <h2 class="text-2xl font-bold text-slate-900">Manager Command Center</h2>
-            <p class="text-xs text-slate-500">Logged in: <strong class="text-slate-700">${user.name}</strong> &bull; Total Technicians on Roster: <strong class="text-indigo-600">${technicians.length}</strong></p>
+            <p class="text-xs text-slate-500">Logged in: <strong class="text-slate-700">${user.name}</strong> &bull; Total Technicians: <strong class="text-indigo-600">${technicians.length}</strong></p>
+          </div>
+          <div class="text-xs bg-emerald-50 text-emerald-700 font-semibold px-3 py-1 rounded-full border border-emerald-200 flex items-center space-x-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Real-time Manager Alerts & Sync Active</span>
           </div>
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div class="bg-white p-4 rounded-xl border border-slate-200">
-            <span class="text-xs font-semibold text-slate-400">Total Inquiries</span>
-            <div class="text-2xl font-bold text-slate-800">${db.requests.length}</div>
+            <span class="text-xs font-semibold text-slate-400">Total Requests</span>
+            <div class="text-2xl font-bold text-slate-800">${memoryDB.requests.length}</div>
           </div>
           <div class="bg-white p-4 rounded-xl border border-slate-200">
             <span class="text-xs font-semibold text-amber-500">Pending Review</span>
-            <div class="text-2xl font-bold text-amber-600">${db.requests.filter(r => r.status === 'Pending').length}</div>
+            <div class="text-2xl font-bold text-amber-600">${memoryDB.requests.filter(r => r.status === 'Pending').length}</div>
           </div>
           <div class="bg-white p-4 rounded-xl border border-slate-200">
             <span class="text-xs font-semibold text-indigo-500">Active Work Orders</span>
-            <div class="text-2xl font-bold text-indigo-600">${db.requests.filter(r => ['Assigned', 'InProgress'].includes(r.status)).length}</div>
+            <div class="text-2xl font-bold text-indigo-600">${memoryDB.requests.filter(r => ['Assigned', 'InProgress'].includes(r.status)).length}</div>
           </div>
           <div class="bg-white p-4 rounded-xl border border-slate-200">
             <span class="text-xs font-semibold text-emerald-500">Completed</span>
-            <div class="text-2xl font-bold text-emerald-600">${db.requests.filter(r => r.status === 'Completed').length}</div>
+            <div class="text-2xl font-bold text-emerald-600">${memoryDB.requests.filter(r => r.status === 'Completed').length}</div>
           </div>
         </div>
 
@@ -625,7 +728,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
-                ${db.requests.map(r => `
+                ${memoryDB.requests.map(r => `
                   <tr class="hover:bg-slate-50/80">
                     <td class="p-3 font-mono text-xs font-semibold text-slate-500">#${r.id}</td>
                     <td class="p-3 text-xs">
@@ -680,18 +783,17 @@
 
     function openAssignModal(reqId) {
       currentAssignReqId = reqId;
-      const db = getDB();
-      const r = db.requests.find(x => x.id === reqId);
-      const technicians = db.users.filter(u => u.role === 'technician');
+      const r = memoryDB.requests.find(x => x.id === reqId);
+      const technicians = memoryDB.users.filter(u => u.role === 'technician');
 
       document.getElementById('assign-modal-req-title').innerText = `Assigning for Ticket #${r.id}: "${r.title}" (Location: ${r.location || 'Office'})`;
       const container = document.getElementById('technician-list-container');
 
       if (technicians.length === 0) {
-        container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">No technicians found. Use the "+ Add New Technician" option below to register one.</div>`;
+        container.innerHTML = `<div class="p-4 text-center text-xs text-slate-400">No technicians found. Use "+ Add New Technician" below.</div>`;
       } else {
         container.innerHTML = technicians.map(t => {
-          const activeJobs = db.requests.filter(req => req.techId === t.id && req.status !== 'Completed').length;
+          const activeJobs = memoryDB.requests.filter(req => req.techId === t.id && req.status !== 'Completed').length;
           const isSelected = r.techId === t.id;
           return `
             <label class="flex items-center justify-between p-3 border rounded-xl hover:bg-slate-50 cursor-pointer ${isSelected ? 'border-indigo-500 bg-indigo-50/50' : 'border-slate-200'}">
@@ -727,25 +829,27 @@
         return;
       }
       const techId = parseInt(selected.value);
-      const db = getDB();
-      const r = db.requests.find(x => x.id === currentAssignReqId);
-      const tech = db.users.find(u => u.id === techId);
+      const r = memoryDB.requests.find(x => x.id === currentAssignReqId);
+      const tech = memoryDB.users.find(u => u.id === techId);
 
       if (r && tech) {
         r.techId = tech.id;
         r.techName = tech.name;
         r.status = 'Assigned';
-        saveDB(db);
+        pushStateToCloud();
 
-        // 1. Notify the technician who got assigned
-        addNotification(tech.id, `🚨 New Task Assigned: Ticket #${r.id} ("${r.title}") at location: ${r.location || 'Office'}. Requester: ${r.requesterName}.`);
+        // 1. Alert the technician across devices
+        addNotification(tech.id, 'technician', `🛠️ Technician Alert: You were assigned to Ticket #${r.id} ("${r.title}") at location: ${r.location}. Requester: ${r.requesterName}.`);
 
-        // 2. Notify the requester that technician was assigned
-        addNotification(r.requesterId, `🛠️ Technician ${tech.name} has been assigned to your ticket #${r.id} ("${r.title}").`);
+        // 2. Alert the requester
+        addNotification(r.requesterId, 'requester', `👤 Requester Alert: Technician ${tech.name} has been assigned to your ticket #${r.id} ("${r.title}").`);
+
+        // 3. Alert managers
+        addNotification(null, 'manager', `📊 Manager Alert: Ticket #${r.id} dispatched to ${tech.name}.`);
 
         closeAssignModal();
         showView('manager_dashboard');
-        alert(`Assigned to ${tech.name}! An alert notification has been sent to their terminal.`);
+        alert(`Assigned to ${tech.name}! Notifications dispatched across all roles.`);
       }
     }
 
@@ -763,8 +867,7 @@
         alert('Please provide technician name and email.');
         return;
       }
-      const db = getDB();
-      if (db.users.some(u => u.email === email)) {
+      if (memoryDB.users.some(u => u.email === email)) {
         alert('A user with this email already exists.');
         return;
       }
@@ -779,41 +882,47 @@
         status: 'Available'
       };
 
-      db.users.push(newTech);
-      saveDB(db);
-      alert(`Technician ${name} added! You can now select them.`);
+      memoryDB.users.push(newTech);
+      pushStateToCloud();
+      addNotification(null, 'manager', `📊 Manager Alert: New technician ${name} added to roster.`);
+      alert(`Technician ${name} added and synced to cloud!`);
       toggleNewTechForm();
       openAssignModal(currentAssignReqId);
     }
 
     function updateRequestStatus(reqId, status) {
-      const db = getDB();
-      const r = db.requests.find(x => x.id === reqId);
+      const r = memoryDB.requests.find(x => x.id === reqId);
       if (r) {
         r.status = status;
-        saveDB(db);
-        addNotification(r.requesterId, `Manager updated Ticket #${r.id} to status: ${status}.`);
+        pushStateToCloud();
+        
+        // Notify Requester
+        addNotification(r.requesterId, 'requester', `👤 Requester Alert: Manager updated Ticket #${r.id} ("${r.title}") to status: ${status}.`);
+        
+        // Notify Manager
+        addNotification(null, 'manager', `📊 Manager Alert: Ticket #${r.id} marked as ${status}.`);
+        
         showView('manager_dashboard');
       }
     }
 
     function changePriority(reqId, newPriority) {
-      const db = getDB();
-      const r = db.requests.find(x => x.id === reqId);
+      const r = memoryDB.requests.find(x => x.id === reqId);
       if (r) {
         r.priority = newPriority;
-        saveDB(db);
-        addNotification(r.requesterId, `Priority for Ticket #${r.id} was updated to "${newPriority}".`);
+        pushStateToCloud();
+        addNotification(r.requesterId, 'requester', `👤 Requester Alert: Priority for Ticket #${r.id} updated to "${newPriority}".`);
         if (r.techId) {
-          addNotification(r.techId, `Priority for your assigned Ticket #${r.id} changed to "${newPriority}".`);
+          addNotification(r.techId, 'technician', `🛠️ Technician Alert: Priority for assigned Ticket #${r.id} changed to "${newPriority}".`);
         }
+        addNotification(null, 'manager', `📊 Manager Alert: Priority for Ticket #${r.id} set to "${newPriority}".`);
       }
     }
 
     // --- TECHNICIAN TERMINAL ---
-    function renderTechnicianDashboard(root, db) {
-      const user = db.currentUser;
-      const myJobs = db.requests.filter(r => r.techId === user.id);
+    function renderTechnicianDashboard(root) {
+      const user = memoryDB.currentUser;
+      const myJobs = memoryDB.requests.filter(r => r.techId === user.id);
 
       root.innerHTML = `
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -832,7 +941,7 @@
 
           ${myJobs.length === 0 ? `
             <div class="p-8 text-center text-slate-400 text-sm">
-              No tasks currently assigned to you. When a Manager assigns you a request, you will receive an alert notification and it will appear here!
+              No tasks currently assigned to you. When the Manager assigns you a request, you will receive an alert notification and it will appear here!
             </div>
           ` : `
             <div class="overflow-x-auto">
@@ -889,22 +998,23 @@
     }
 
     function updateTechnicianTask(reqId, status) {
-      const db = getDB();
-      const r = db.requests.find(x => x.id === reqId);
+      const r = memoryDB.requests.find(x => x.id === reqId);
       if (r) {
         r.status = status;
-        saveDB(db);
+        pushStateToCloud();
 
         if (status === 'InProgress') {
-          addNotification(r.requesterId, `🛠️ Technician ${db.currentUser.name} has started working on Ticket #${reqId} ("${r.title}") at ${r.location}.`);
+          // Notify Requester
+          addNotification(r.requesterId, 'requester', `🛠️ Technician ${memoryDB.currentUser.name} has started working on Ticket #${reqId} ("${r.title}") at ${r.location}.`);
+          // Notify Manager
+          addNotification(null, 'manager', `📊 Manager Alert: Technician ${memoryDB.currentUser.name} has commenced work on Ticket #${reqId}.`);
         } else if (status === 'Completed') {
-          // Notify requester that task is completed!
-          addNotification(r.requesterId, `🎉 Great news! Ticket #${reqId} ("${r.title}") at ${r.location} has been marked as COMPLETED by Technician ${db.currentUser.name}.`);
-          
-          // Notify managers
-          db.users.filter(u => u.role === 'manager').forEach(mgr => {
-            addNotification(mgr.id, `Ticket #${reqId} ("${r.title}") was completed by Technician ${db.currentUser.name}.`);
-          });
+          // Notify Requester
+          addNotification(r.requesterId, 'requester', `🎉 Great news! Ticket #${reqId} ("${r.title}") at ${r.location} has been marked as COMPLETED by Technician ${memoryDB.currentUser.name}.`);
+          // Notify Manager
+          addNotification(null, 'manager', `✅ Manager Alert: Ticket #${reqId} ("${r.title}") was completed by Technician ${memoryDB.currentUser.name}.`);
+          // Notify Technician
+          addNotification(memoryDB.currentUser.id, 'technician', `✓ You marked Ticket #${reqId} as resolved. Great job!`);
         }
 
         showView('technician_dashboard');
@@ -916,11 +1026,10 @@
       const modal = document.getElementById('notif-modal');
       modal.classList.toggle('hidden');
       if (!modal.classList.contains('hidden')) {
-        const db = getDB();
-        const user = db.currentUser;
+        const user = memoryDB.currentUser;
         if (!user) return;
 
-        document.getElementById('notif-user-info').innerText = `Notifications for ${user.name} (${user.role})`;
+        document.getElementById('notif-user-info').innerText = `Notifications for ${user.name} (${user.role.toUpperCase()})`;
         const myNotifs = getMyNotifications(user);
         const container = document.getElementById('notif-items');
 
@@ -932,18 +1041,18 @@
               <p class="text-slate-800 font-medium leading-relaxed">${n.text}</p>
               <div class="flex items-center justify-between mt-2 pt-1 border-t border-slate-200/50">
                 <span class="text-[10px] text-slate-400">${n.date}</span>
-                <span class="text-[10px] text-sky-600 font-semibold font-mono">ERMS Alert</span>
+                <span class="text-[10px] text-sky-600 font-semibold font-mono uppercase">${n.targetRole || 'ALERT'}</span>
               </div>
             </div>
           `).join('');
 
           // Mark as read
-          db.notifications.forEach(n => {
-            if (n.targetUserId === user.id || n.targetUserId === null) {
+          memoryDB.notifications.forEach(n => {
+            if (n.targetUserId === user.id || n.targetRole === user.role || n.targetRole === 'all') {
               n.read = true;
             }
           });
-          saveDB(db);
+          pushStateToCloud();
           const badge = document.querySelector('.pulse-badge');
           if (badge) badge.remove();
         }
@@ -951,11 +1060,10 @@
     }
 
     function clearNotifs() {
-      const db = getDB();
-      const user = db.currentUser;
+      const user = memoryDB.currentUser;
       if (user) {
-        db.notifications = db.notifications.filter(n => n.targetUserId !== user.id);
-        saveDB(db);
+        memoryDB.notifications = memoryDB.notifications.filter(n => !(n.targetUserId === user.id || n.targetRole === user.role));
+        pushStateToCloud();
       }
       toggleNotifs();
       showView(user ? user.role + '_dashboard' : 'landing');
