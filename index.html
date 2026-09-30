@@ -14,6 +14,12 @@
     .badge-Assigned { background: #EEF2FF; color: #4338CA; border: 1px solid #C7D2FE; }
     .badge-InProgress { background: #F3E8FF; color: #6D28D9; border: 1px solid #DDD6FE; }
     .badge-Completed { background: #D1FAE5; color: #047857; border: 1px solid #A7F3D0; }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+    .pulse-badge { animation: pulse-ring 2s infinite; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
@@ -77,17 +83,20 @@
   <div id="notif-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm hidden z-50 flex justify-end">
     <div class="bg-white w-full max-w-md h-full shadow-2xl flex flex-col p-5">
       <div class="flex justify-between items-center pb-4 border-b border-slate-200">
-        <h3 class="font-bold text-lg text-slate-800">Notifications</h3>
+        <div>
+          <h3 class="font-bold text-lg text-slate-800">Your Notifications</h3>
+          <p id="notif-user-info" class="text-xs text-slate-500"></p>
+        </div>
         <button onclick="toggleNotifs()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
       </div>
       <div id="notif-items" class="flex-1 overflow-y-auto py-4 space-y-3"></div>
-      <button onclick="clearNotifs()" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded-lg text-slate-700">Clear All Notifications</button>
+      <button onclick="clearNotifs()" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded-lg text-slate-700">Clear All My Notifications</button>
     </div>
   </div>
 
   <script>
     // --- DATABASE & PERSISTENCE ---
-    const DB_KEY = 'erms_system_data_v2';
+    const DB_KEY = 'erms_system_data_v3';
 
     function initDB() {
       if (!localStorage.getItem(DB_KEY)) {
@@ -100,11 +109,40 @@
             { id: 4, name: 'Maria Santos', email: 'maria@enterprise.com', password: 'password123', role: 'technician', department: 'Network & Cloud Infrastructure', status: 'Available' }
           ],
           requests: [
-            { id: 101, title: 'MacBook Pro Screen Glitch', category: 'Hardware', priority: 'High', status: 'Assigned', requesterId: 1, requesterName: 'Sarah Jenkins', requesterDept: 'Product Marketing', techId: 3, techName: 'Alex Rivera', description: 'Screen flashes purple artifacts during Zoom video meetings.', date: '2026-09-28' },
-            { id: 102, title: 'VPN Certificate Renewal', category: 'Network', priority: 'Critical', status: 'Pending', requesterId: 1, requesterName: 'Sarah Jenkins', requesterDept: 'Product Marketing', techId: null, techName: null, description: 'Cannot reach production analytics cluster while working remotely.', date: '2026-09-29' }
+            { 
+              id: 101, 
+              title: 'MacBook Pro Screen Glitch', 
+              category: 'Hardware', 
+              priority: 'High', 
+              status: 'Assigned', 
+              location: 'Building A - Main Headquarters (3rd Floor - Marketing)', 
+              requesterId: 1, 
+              requesterName: 'Sarah Jenkins', 
+              requesterDept: 'Product Marketing', 
+              techId: 3, 
+              techName: 'Alex Rivera', 
+              description: 'Screen flashes purple artifacts during Zoom video meetings.', 
+              date: '2026-09-28' 
+            },
+            { 
+              id: 102, 
+              title: 'VPN Certificate Renewal', 
+              category: 'Network', 
+              priority: 'Critical', 
+              status: 'Pending', 
+              location: 'Remote / Home Office', 
+              requesterId: 1, 
+              requesterName: 'Sarah Jenkins', 
+              requesterDept: 'Product Marketing', 
+              techId: null, 
+              techName: null, 
+              description: 'Cannot reach production analytics cluster while working remotely.', 
+              date: '2026-09-29' 
+            }
           ],
           notifications: [
-            { id: 1, text: 'Welcome to Enterprise Request Management System.', date: 'Just now' }
+            { id: 1, targetUserId: 1, text: 'Welcome to ERMS. Track your request updates in real-time.', date: 'Just now', read: false },
+            { id: 2, targetUserId: 3, text: 'Ticket #101 (MacBook Pro Screen Glitch) has been assigned to you.', date: 'Just now', read: false }
           ]
         };
         localStorage.setItem(DB_KEY, JSON.stringify(initialData));
@@ -115,6 +153,24 @@
     function getDB() { return JSON.parse(localStorage.getItem(DB_KEY)); }
     function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
 
+    function addNotification(targetUserId, text) {
+      const db = getDB();
+      db.notifications.unshift({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        targetUserId: targetUserId,
+        text: text,
+        date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        read: false
+      });
+      saveDB(db);
+    }
+
+    function getMyNotifications(user) {
+      if (!user) return [];
+      const db = getDB();
+      return db.notifications.filter(n => n.targetUserId === user.id || n.targetUserId === null || (user.role === 'manager' && n.targetRole === 'manager'));
+    }
+
     // --- NAVIGATION CONTROLLER ---
     function showView(view, param = null) {
       const db = getDB();
@@ -123,10 +179,17 @@
 
       if (db.currentUser) {
         const u = db.currentUser;
+        const myNotifs = getMyNotifications(u);
+        const unreadCount = myNotifs.filter(n => !n.read).length;
+
         nav.innerHTML = `
-          <button onclick="toggleNotifs()" class="relative p-2 text-slate-300 hover:text-white" title="Notifications">
+          <button onclick="toggleNotifs()" class="relative p-2 text-slate-300 hover:text-white transition" title="Notifications">
             <span class="text-xl">🔔</span>
-            <span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+            ${unreadCount > 0 ? `
+              <span class="absolute top-1 right-1 w-5 h-5 bg-red-500 text-[10px] text-white font-bold rounded-full flex items-center justify-center pulse-badge">
+                ${unreadCount}
+              </span>
+            ` : ''}
           </button>
           <div class="hidden sm:flex flex-col text-right">
             <span class="text-xs font-bold text-white leading-tight">${u.name}</span>
@@ -157,16 +220,15 @@
         <div class="text-center py-10 sm:py-16">
           <span class="bg-indigo-100 text-indigo-800 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Enterprise System</span>
           <h1 class="text-3xl sm:text-5xl font-extrabold text-slate-900 mt-4 tracking-tight">Enterprise Request Management</h1>
-          <p class="text-slate-600 max-w-2xl mx-auto mt-3 text-sm sm:text-base">Role-governed operations platform with full ticket lifecycles, custom accounts, and manual technician dispatch.</p>
+          <p class="text-slate-600 max-w-2xl mx-auto mt-3 text-sm sm:text-base">Role-governed operations platform with full ticket lifecycles, precise location dispatch, and cross-dashboard notifications.</p>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          <!-- Requester Card -->
           <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between">
             <div>
               <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">👤</div>
               <h3 class="text-xl font-bold text-slate-800">Requester Portal</h3>
-              <p class="text-slate-500 text-xs sm:text-sm mt-2">Log in with your own credentials or create a new account to file tickets and track resolution.</p>
+              <p class="text-slate-500 text-xs sm:text-sm mt-2">Submit tickets specifying issue location (building, floor, lab). Receive real-time alerts when your task is completed!</p>
             </div>
             <div class="mt-6 space-y-2">
               <button onclick="showView('auth', { role: 'requester', mode: 'login' })" class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-semibold text-xs sm:text-sm transition">Sign In as Requester</button>
@@ -174,12 +236,11 @@
             </div>
           </div>
 
-          <!-- Manager Card -->
           <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between">
             <div>
               <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">📊</div>
               <h3 class="text-xl font-bold text-slate-800">Manager Portal</h3>
-              <p class="text-slate-500 text-xs sm:text-sm mt-2">Review requests, approve/reject, change priorities, and assign skilled technicians directly.</p>
+              <p class="text-slate-500 text-xs sm:text-sm mt-2">Review ticket details and location. Dispatch technicians directly; assigning instantly notifies the technician.</p>
             </div>
             <div class="mt-6 space-y-2">
               <button onclick="showView('auth', { role: 'manager', mode: 'login' })" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs sm:text-sm transition">Sign In as Manager</button>
@@ -187,12 +248,11 @@
             </div>
           </div>
 
-          <!-- Technician Card -->
           <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between">
             <div>
               <div class="w-12 h-12 bg-teal-100 text-teal-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">🛠️</div>
               <h3 class="text-xl font-bold text-slate-800">Technician Terminal</h3>
-              <p class="text-slate-500 text-xs sm:text-sm mt-2">View assigned tickets, update progress, add technician work notes, and resolve issues.</p>
+              <p class="text-slate-500 text-xs sm:text-sm mt-2">Receive push alerts for newly assigned tickets, view building/room locations, and notify requesters upon completion.</p>
             </div>
             <div class="mt-6 space-y-2">
               <button onclick="showView('auth', { role: 'technician', mode: 'login' })" class="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-semibold text-xs sm:text-sm transition">Sign In as Technician</button>
@@ -203,7 +263,7 @@
       `;
     }
 
-    // --- AUTH (SIGN IN & REGISTER WITH YOUR OWN DETAILS) ---
+    // --- AUTH ---
     function renderAuth(root, db, config) {
       const role = config.role;
       const isSignUp = config.mode === 'signup';
@@ -293,8 +353,8 @@
 
         db.users.push(newUser);
         db.currentUser = newUser;
-        db.notifications.unshift({ id: Date.now(), text: `New ${role} account registered: ${name}`, date: 'Just now' });
         saveDB(db);
+        addNotification(newUser.id, `Welcome to ERMS, ${name}! Your account has been registered.`);
         alert(`Account created successfully! Welcome, ${name}.`);
         showView(role + '_dashboard');
       } else {
@@ -331,13 +391,15 @@
             <h2 class="text-2xl font-bold text-slate-900">Requester Dashboard</h2>
             <p class="text-xs text-slate-500">Welcome, <strong class="text-slate-700">${user.name}</strong> &bull; Department: ${user.department || 'General'}</p>
           </div>
-          <button onclick="openNewReqModal()" class="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-sm transition">+ Submit New Request</button>
+          <button onclick="openNewReqModal()" class="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-xs sm:text-sm rounded-xl shadow-sm transition flex items-center space-x-1.5">
+            <span>+</span><span>Submit New Request</span>
+          </button>
         </div>
 
         <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div class="p-4 border-b border-slate-100 flex justify-between items-center">
             <span class="font-bold text-slate-800">Your Submitted Requests (${myReqs.length})</span>
-            <span class="text-xs text-slate-400">Track real-time progress and assignments</span>
+            <span class="text-xs text-slate-400">Includes ticket location and technician status</span>
           </div>
 
           ${myReqs.length === 0 ? `
@@ -350,7 +412,8 @@
                 <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-semibold">
                   <tr>
                     <th class="p-3">Ticket ID</th>
-                    <th class="p-3">Title</th>
+                    <th class="p-3">Issue Title</th>
+                    <th class="p-3">Location</th>
                     <th class="p-3">Category</th>
                     <th class="p-3">Priority</th>
                     <th class="p-3">Status</th>
@@ -365,6 +428,11 @@
                       <td class="p-3">
                         <div class="font-semibold text-slate-800">${r.title}</div>
                         <div class="text-xs text-slate-500 truncate max-w-xs">${r.description}</div>
+                      </td>
+                      <td class="p-3 text-xs">
+                        <span class="inline-flex items-center text-slate-700 font-medium bg-slate-100 px-2 py-0.5 rounded">
+                          📍 ${r.location || 'General Office'}
+                        </span>
                       </td>
                       <td class="p-3 text-slate-600 text-xs">${r.category}</td>
                       <td class="p-3">
@@ -383,17 +451,37 @@
           `}
         </div>
 
+        <!-- NEW REQUEST MODAL WITH LOCATION SELECTION -->
         <div id="new-req-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
           <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border border-slate-200">
             <div class="flex justify-between items-center pb-3 border-b border-slate-100">
               <h3 class="text-lg font-bold text-slate-900">Submit New Service Request</h3>
               <button onclick="closeNewReqModal()" class="text-slate-400 hover:text-slate-700 text-2xl font-bold leading-none">&times;</button>
             </div>
-            <form onsubmit="submitNewRequest(event)" class="space-y-4 pt-3">
+            <form onsubmit="submitNewRequest(event)" class="space-y-3.5 pt-3">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Issue / Request Title</label>
                 <input type="text" id="req-title" required placeholder="Brief summary of what is needed" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500">
               </div>
+
+              <!-- LOCATION SELECTION SECTION -->
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">📍 Select Location / Facility</label>
+                <select id="req-location-select" onchange="handleLocationChange(this.value)" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500 mb-1.5">
+                  <option value="Building A - Main Headquarters, 1st Floor">Building A - Main Headquarters (1st Floor)</option>
+                  <option value="Building A - Main Headquarters, 2nd Floor (Engineering)">Building A - Main Headquarters (2nd Floor - Engineering)</option>
+                  <option value="Building A - Main Headquarters, 3rd Floor (Marketing)">Building A - Main Headquarters (3rd Floor - Marketing)</option>
+                  <option value="Building B - Operations & Logistics, Ground Floor">Building B - Operations & Logistics (Ground Floor)</option>
+                  <option value="Building B - Operations & Logistics, 2nd Floor">Building B - Operations & Logistics (2nd Floor)</option>
+                  <option value="Building C - Innovation & Tech Lab">Building C - Innovation & Tech Lab</option>
+                  <option value="Conference Center / Boardroom">Conference Center / Boardroom</option>
+                  <option value="Server Room / Data Center">Server Room / Data Center</option>
+                  <option value="Remote / Home Office">Remote / Home Office</option>
+                  <option value="Custom">Custom / Specific Room Location...</option>
+                </select>
+                <input type="text" id="req-location-custom" placeholder="Specify desk number, cubicle, or room..." class="hidden w-full border border-slate-300 rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-sky-500">
+              </div>
+
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-semibold text-slate-700 mb-1">Category</label>
@@ -414,10 +502,12 @@
                   </select>
                 </div>
               </div>
+
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Detailed Description</label>
-                <textarea id="req-desc" rows="3" required placeholder="Describe the problem, error messages, and room/desk location..." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"></textarea>
+                <textarea id="req-desc" rows="3" required placeholder="Describe the problem, error messages, and any details for the technician..." class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"></textarea>
               </div>
+
               <div class="flex justify-end space-x-2 pt-2 border-t border-slate-100">
                 <button type="button" onclick="closeNewReqModal()" class="px-4 py-2 border rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
                 <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-xl text-xs font-semibold shadow-sm">Submit Request</button>
@@ -428,18 +518,33 @@
       `;
     }
 
+    function handleLocationChange(val) {
+      const customInput = document.getElementById('req-location-custom');
+      if (val === 'Custom') {
+        customInput.classList.remove('hidden');
+        customInput.focus();
+      } else {
+        customInput.classList.add('hidden');
+      }
+    }
+
     function openNewReqModal() { document.getElementById('new-req-modal').classList.remove('hidden'); }
     function closeNewReqModal() { document.getElementById('new-req-modal').classList.add('hidden'); }
 
     function submitNewRequest(e) {
       e.preventDefault();
       const db = getDB();
+      const selectLoc = document.getElementById('req-location-select').value;
+      const customLoc = document.getElementById('req-location-custom').value.trim();
+      const finalLocation = selectLoc === 'Custom' ? (customLoc || 'Custom Location') : selectLoc;
+
       const newReq = {
         id: Math.floor(100 + Math.random() * 900),
         title: document.getElementById('req-title').value.trim(),
         category: document.getElementById('req-cat').value,
         priority: document.getElementById('req-prio').value,
         status: 'Pending',
+        location: finalLocation,
         requesterId: db.currentUser.id,
         requesterName: db.currentUser.name,
         requesterDept: db.currentUser.department || 'General',
@@ -450,8 +555,16 @@
       };
 
       db.requests.unshift(newReq);
-      db.notifications.unshift({ id: Date.now(), text: `New Ticket #${newReq.id} ("${newReq.title}") submitted by ${db.currentUser.name}.`, date: 'Just now' });
       saveDB(db);
+
+      // Notify requester
+      addNotification(db.currentUser.id, `Ticket #${newReq.id} ("${newReq.title}") submitted at ${finalLocation}. Awaiting manager review.`);
+      
+      // Notify managers
+      db.users.filter(u => u.role === 'manager').forEach(mgr => {
+        addNotification(mgr.id, `New Request #${newReq.id} submitted by ${db.currentUser.name} at location: ${finalLocation}.`);
+      });
+
       closeNewReqModal();
       showView('requester_dashboard');
     }
@@ -493,7 +606,7 @@
         <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div class="p-4 border-b border-slate-100 flex justify-between items-center">
             <span class="font-bold text-slate-800">All Enterprise Requests</span>
-            <span class="text-xs text-slate-400">Click <strong>"Assign Tech"</strong> to dispatch a technician</span>
+            <span class="text-xs text-slate-400">Review ticket locations & click <strong>"Assign Tech"</strong> to notify technician</span>
           </div>
 
           <div class="overflow-x-auto">
@@ -503,11 +616,12 @@
                   <th class="p-3">ID</th>
                   <th class="p-3">Requester</th>
                   <th class="p-3">Issue Title</th>
+                  <th class="p-3">Location</th>
                   <th class="p-3">Priority</th>
                   <th class="p-3">Status</th>
                   <th class="p-3">Assigned Tech</th>
                   <th class="p-3 text-center">Tech Dispatch</th>
-                  <th class="p-3 text-right">Approval Actions</th>
+                  <th class="p-3 text-right">Approval</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
@@ -521,6 +635,11 @@
                     <td class="p-3">
                       <div class="font-semibold text-slate-800">${r.title}</div>
                       <div class="text-xs text-slate-500">${r.category}</div>
+                    </td>
+                    <td class="p-3 text-xs">
+                      <span class="inline-flex items-center text-slate-700 font-medium bg-slate-100 px-2 py-0.5 rounded">
+                        📍 ${r.location || 'HQ Office'}
+                      </span>
                     </td>
                     <td class="p-3">
                       <select onchange="changePriority(${r.id}, this.value)" class="text-xs border rounded px-1.5 py-0.5 bg-white font-medium">
@@ -565,7 +684,7 @@
       const r = db.requests.find(x => x.id === reqId);
       const technicians = db.users.filter(u => u.role === 'technician');
 
-      document.getElementById('assign-modal-req-title').innerText = `Assigning for Ticket #${r.id}: "${r.title}"`;
+      document.getElementById('assign-modal-req-title').innerText = `Assigning for Ticket #${r.id}: "${r.title}" (Location: ${r.location || 'Office'})`;
       const container = document.getElementById('technician-list-container');
 
       if (technicians.length === 0) {
@@ -616,11 +735,17 @@
         r.techId = tech.id;
         r.techName = tech.name;
         r.status = 'Assigned';
-        db.notifications.unshift({ id: Date.now(), text: `Ticket #${r.id} successfully assigned to ${tech.name}.`, date: 'Just now' });
         saveDB(db);
+
+        // 1. Notify the technician who got assigned
+        addNotification(tech.id, `🚨 New Task Assigned: Ticket #${r.id} ("${r.title}") at location: ${r.location || 'Office'}. Requester: ${r.requesterName}.`);
+
+        // 2. Notify the requester that technician was assigned
+        addNotification(r.requesterId, `🛠️ Technician ${tech.name} has been assigned to your ticket #${r.id} ("${r.title}").`);
+
         closeAssignModal();
         showView('manager_dashboard');
-        alert(`Assigned to ${tech.name}!`);
+        alert(`Assigned to ${tech.name}! An alert notification has been sent to their terminal.`);
       }
     }
 
@@ -666,8 +791,8 @@
       const r = db.requests.find(x => x.id === reqId);
       if (r) {
         r.status = status;
-        db.notifications.unshift({ id: Date.now(), text: `Request #${reqId} marked as ${status} by Manager.`, date: 'Just now' });
         saveDB(db);
+        addNotification(r.requesterId, `Manager updated Ticket #${r.id} to status: ${status}.`);
         showView('manager_dashboard');
       }
     }
@@ -678,6 +803,10 @@
       if (r) {
         r.priority = newPriority;
         saveDB(db);
+        addNotification(r.requesterId, `Priority for Ticket #${r.id} was updated to "${newPriority}".`);
+        if (r.techId) {
+          addNotification(r.techId, `Priority for your assigned Ticket #${r.id} changed to "${newPriority}".`);
+        }
       }
     }
 
@@ -698,12 +827,12 @@
         <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
           <div class="p-4 border-b border-slate-100 flex justify-between items-center">
             <span class="font-bold text-slate-800">Your Assigned Work Orders (${myJobs.length})</span>
-            <span class="text-xs text-slate-400">Update ticket state as you work</span>
+            <span class="text-xs text-slate-400">View ticket location & update resolution state</span>
           </div>
 
           ${myJobs.length === 0 ? `
             <div class="p-8 text-center text-slate-400 text-sm">
-              No tasks currently assigned to you. When a Manager assigns you a request, it will appear right here!
+              No tasks currently assigned to you. When a Manager assigns you a request, you will receive an alert notification and it will appear here!
             </div>
           ` : `
             <div class="overflow-x-auto">
@@ -712,6 +841,7 @@
                   <tr>
                     <th class="p-3">Ticket ID</th>
                     <th class="p-3">Requester Info</th>
+                    <th class="p-3">Location</th>
                     <th class="p-3">Title & Details</th>
                     <th class="p-3">Priority</th>
                     <th class="p-3">Status</th>
@@ -725,6 +855,11 @@
                       <td class="p-3 text-xs">
                         <div class="font-bold text-slate-800">${job.requesterName}</div>
                         <div class="text-slate-400">${job.requesterDept || 'Enterprise'}</div>
+                      </td>
+                      <td class="p-3 text-xs">
+                        <span class="inline-flex items-center text-indigo-700 font-bold bg-indigo-50 px-2.5 py-1 rounded-lg border border-indigo-100">
+                          📍 ${job.location || 'Main Office'}
+                        </span>
                       </td>
                       <td class="p-3">
                         <div class="font-semibold text-slate-800">${job.title}</div>
@@ -758,43 +893,75 @@
       const r = db.requests.find(x => x.id === reqId);
       if (r) {
         r.status = status;
-        db.notifications.unshift({ id: Date.now(), text: `Technician ${db.currentUser.name} updated Ticket #${reqId} to "${status}".`, date: 'Just now' });
         saveDB(db);
+
+        if (status === 'InProgress') {
+          addNotification(r.requesterId, `🛠️ Technician ${db.currentUser.name} has started working on Ticket #${reqId} ("${r.title}") at ${r.location}.`);
+        } else if (status === 'Completed') {
+          // Notify requester that task is completed!
+          addNotification(r.requesterId, `🎉 Great news! Ticket #${reqId} ("${r.title}") at ${r.location} has been marked as COMPLETED by Technician ${db.currentUser.name}.`);
+          
+          // Notify managers
+          db.users.filter(u => u.role === 'manager').forEach(mgr => {
+            addNotification(mgr.id, `Ticket #${reqId} ("${r.title}") was completed by Technician ${db.currentUser.name}.`);
+          });
+        }
+
         showView('technician_dashboard');
       }
     }
 
+    // --- NOTIFICATIONS SYSTEM ---
     function toggleNotifs() {
       const modal = document.getElementById('notif-modal');
       modal.classList.toggle('hidden');
       if (!modal.classList.contains('hidden')) {
         const db = getDB();
+        const user = db.currentUser;
+        if (!user) return;
+
+        document.getElementById('notif-user-info').innerText = `Notifications for ${user.name} (${user.role})`;
+        const myNotifs = getMyNotifications(user);
         const container = document.getElementById('notif-items');
-        container.innerHTML = db.notifications.map(n => `
-          <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
-            <p class="text-slate-800 font-medium">${n.text}</p>
-            <span class="text-[10px] text-slate-400 mt-1 block">${n.date}</span>
-          </div>
-        `).join('');
+
+        if (myNotifs.length === 0) {
+          container.innerHTML = `<div class="p-6 text-center text-xs text-slate-400">No notifications right now. Alerts will appear here when tickets are assigned, updated, or completed.</div>`;
+        } else {
+          container.innerHTML = myNotifs.map(n => `
+            <div class="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200/80 text-xs transition">
+              <p class="text-slate-800 font-medium leading-relaxed">${n.text}</p>
+              <div class="flex items-center justify-between mt-2 pt-1 border-t border-slate-200/50">
+                <span class="text-[10px] text-slate-400">${n.date}</span>
+                <span class="text-[10px] text-sky-600 font-semibold font-mono">ERMS Alert</span>
+              </div>
+            </div>
+          `).join('');
+
+          // Mark as read
+          db.notifications.forEach(n => {
+            if (n.targetUserId === user.id || n.targetUserId === null) {
+              n.read = true;
+            }
+          });
+          saveDB(db);
+          const badge = document.querySelector('.pulse-badge');
+          if (badge) badge.remove();
+        }
       }
     }
 
     function clearNotifs() {
       const db = getDB();
-      db.notifications = [];
-      saveDB(db);
+      const user = db.currentUser;
+      if (user) {
+        db.notifications = db.notifications.filter(n => n.targetUserId !== user.id);
+        saveDB(db);
+      }
       toggleNotifs();
+      showView(user ? user.role + '_dashboard' : 'landing');
     }
 
     showView('landing');
   </script>
 </body>
 </html>
-     
-      
-     
-      
-           
-
-
-       
