@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ERMS – Enterprise Request Management System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .badge-Pending { background: #FEF3C7; color: #B45309; }
+    .badge-Approved { background: #E0F2FE; color: #0369A1; }
+    .badge-Rejected { background: #FFE4E6; color: #BE123C; }
+    .badge-Assigned { background: #EEF2FF; color: #4338CA; }
+    .badge-InProgress { background: #F3E8FF; color: #6D28D9; }
+    .badge-Completed { background: #D1FAE5; color: #047857; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- NAVBAR -->
+  <header class="bg-slate-900 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3 cursor-pointer" onclick="showView('landing')">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center font-bold text-lg">E</div>
+        <div>
+          <span class="text-xl font-bold tracking-tight">ERMS</span>
+          <span class="text-xs block text-slate-400">Enterprise Request Management</span>
+        </div>
+      </div>
+      <div id="nav-actions" class="flex items-center space-x-3"></div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main id="app-root" class="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6"></main>
+
+  <!-- NOTIFICATIONS MODAL -->
+  <div id="notif-modal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm hidden z-50 flex justify-end">
+    <div class="bg-white w-full max-w-md h-full shadow-2xl flex flex-col p-5">
+      <div class="flex justify-between items-center pb-4 border-b border-slate-200">
+        <h3 class="font-bold text-lg text-slate-800">Notifications</h3>
+        <button onclick="toggleNotifs()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+      </div>
+      <div id="notif-items" class="flex-1 overflow-y-auto py-4 space-y-3"></div>
+      <button onclick="clearNotifs()" class="w-full py-2 bg-slate-100 hover:bg-slate-200 text-xs font-semibold rounded-lg text-slate-700">Mark all as read</button>
+    </div>
+  </div>
+
+  <script>
+    // --- STATE MANAGEMENT ---
+    const DB_KEY = 'erms_db_data';
+    function initDB() {
+      if (!localStorage.getItem(DB_KEY)) {
+        const defaultData = {
+          currentUser: null,
+          users: [
+            { id: 1, name: 'Sarah Jenkins', email: 'sarah.requester@enterprise.com', password: 'password123', role: 'requester', department: 'Product Marketing' },
+            { id: 2, name: 'David Miller', email: 'david.manager@enterprise.com', password: 'password123', role: 'manager', department: 'Operations' },
+            { id: 3, name: 'Alex Rivera', email: 'alex.tech@enterprise.com', password: 'password123', role: 'technician', department: 'Hardware & IT', status: 'Available', rating: 4.8 },
+            { id: 4, name: 'Maria Santos', email: 'maria.tech@enterprise.com', password: 'password123', role: 'technician', department: 'Network & Security', status: 'Available', rating: 4.9 }
+          ],
+          requests: [
+            { id: 101, title: 'Laptop Battery Failure', category: 'Hardware', priority: 'High', status: 'Assigned', requesterId: 1, requesterName: 'Sarah Jenkins', techId: 3, techName: 'Alex Rivera', description: 'Battery drains in 15 mins during client calls.', date: '2026-09-28' },
+            { id: 102, title: 'VPN Connection Dropping', category: 'Network', priority: 'Critical', status: 'Pending', requesterId: 1, requesterName: 'Sarah Jenkins', techId: null, techName: null, description: 'Cannot access internal databases while remote.', date: '2026-09-29' }
+          ],
+          notifications: [
+            { id: 1, text: 'Welcome to ERMS Enterprise Request Management System.', date: 'Just now' }
+          ]
+        };
+        localStorage.setItem(DB_KEY, JSON.stringify(defaultData));
+      }
+    }
+    initDB();
+
+    function getDB() { return JSON.parse(localStorage.getItem(DB_KEY)); }
+    function saveDB(db) { localStorage.setItem(DB_KEY, JSON.stringify(db)); }
+
+    // --- NAVIGATION ---
+    function showView(view, param = null) {
+      const db = getDB();
+      const root = document.getElementById('app-root');
+      const nav = document.getElementById('nav-actions');
+
+      // Update Nav
+      if (db.currentUser) {
+        nav.innerHTML = `
+          <button onclick="toggleNotifs()" class="relative p-2 text-slate-300 hover:text-white">
+            <span class="text-lg">🔔</span>
+            <span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+          </button>
+          <span class="text-xs bg-slate-800 text-sky-400 font-semibold px-2.5 py-1 rounded-full uppercase">${db.currentUser.role}</span>
+          <span class="text-sm font-medium hidden sm:inline">${db.currentUser.name}</span>
+          <button onclick="logout()" class="text-xs bg-red-600/80 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg font-medium transition">Logout</button>
+        `;
+      } else {
+        nav.innerHTML = `
+          <button onclick="showView('landing')" class="text-sm font-medium hover:text-sky-400 transition">Portals</button>
+        `;
+      }
+
+      if (view === 'landing') renderLanding(root, db);
+      else if (view === 'login') renderLogin(root, db, param);
+      else if (view === 'requester_dashboard') renderRequester(root, db);
+      else if (view === 'manager_dashboard') renderManager(root, db);
+      else if (view === 'technician_dashboard') renderTechnician(root, db);
+    }
+
+    // --- LANDING PAGE ---
+    function renderLanding(root, db) {
+      if (db.currentUser) {
+        showView(db.currentUser.role + '_dashboard');
+        return;
+      }
+      root.innerHTML = `
+        <div class="text-center py-10 sm:py-16">
+          <span class="bg-sky-100 text-sky-800 text-xs font-bold px-3 py-1 rounded-full uppercase">Enterprise Grade System</span>
+          <h1 class="text-3xl sm:text-5xl font-extrabold text-slate-900 mt-4 tracking-tight">Enterprise Request Management</h1>
+          <p class="text-slate-600 max-w-2xl mx-auto mt-3 text-sm sm:text-base">Role-based portal system with verified separation between Requesters, Managers, and Technicians.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <!-- Requester Card -->
+          <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition">
+            <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">👤</div>
+            <h3 class="text-xl font-bold text-slate-800">Requester Portal</h3>
+            <p class="text-slate-500 text-sm mt-2 mb-6">Submit requests, track ticket status, communicate with technicians, and submit feedback ratings.</p>
+            <button onclick="showView('login', 'requester')" class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-semibold text-sm transition">Access as Requester</button>
+          </div>
+
+          <!-- Manager Card -->
+          <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition">
+            <div class="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">📊</div>
+            <h3 class="text-xl font-bold text-slate-800">Manager Portal</h3>
+            <p class="text-slate-500 text-sm mt-2 mb-6">Review requests, approve or reject with reasons, adjust priority, and assign skilled technicians.</p>
+            <button onclick="showView('login', 'manager')" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-sm transition">Access as Manager</button>
+          </div>
+
+          <!-- Technician Card -->
+          <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition">
+            <div class="w-12 h-12 bg-teal-100 text-teal-600 rounded-xl flex items-center justify-center text-2xl font-bold mb-4">🛠️</div>
+            <h3 class="text-xl font-bold text-slate-800">Technician Terminal</h3>
+            <p class="text-slate-500 text-sm mt-2 mb-6">Manage work orders, toggle status, log work notes, complete tasks, and contact requesters.</p>
+            <button onclick="showView('login', 'technician')" class="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-semibold text-sm transition">Access as Technician</button>
+          </div>
+        </div>
+      `;
+    }
+
+    // --- LOGIN SCREEN ---
+    function renderLogin(root, db, role) {
+      const demoUsers = {
+        requester: { email: 'sarah.requester@enterprise.com', color: 'sky' },
+        manager: { email: 'david.manager@enterprise.com', color: 'indigo' },
+        technician: { email: 'alex.tech@enterprise.com', color: 'teal' }
+      };
+      const user = demoUsers[role];
+      root.innerHTML = `
+        <div class="max-w-md mx-auto my-10 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+          <div class="text-center mb-6">
+            <h2 class="text-2xl font-bold capitalize text-slate-900">${role} Portal Login</h2>
+            <p class="text-xs text-slate-500 mt-1">Authorized personnel access only</p>
+          </div>
+          <form onsubmit="handleLogin(event, '${role}')" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Corporate Email</label>
+              <input type="email" id="login-email" value="${user.email}" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-${user.color}-500 outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+              <input type="password" id="login-pass" value="password123" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-${user.color}-500 outline-none">
+            </div>
+            <button type="submit" class="w-full py-2.5 bg-${user.color}-600 hover:bg-${user.color}-700 text-white font-semibold rounded-lg text-sm transition shadow-sm">Sign In to ${role} Portal</button>
+          </form>
+          <div class="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center text-xs text-slate-500">
+            <button onclick="showView('landing')" class="text-slate-600 hover:underline">&larr; Return to Portals</button>
+            <span class="bg-slate-100 px-2 py-1 rounded font-mono">Demo: password123</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function handleLogin(e, role) {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value.trim();
+      const pass = document.getElementById('login-pass').value.trim();
+      const db = getDB();
+      const found = db.users.find(u => u.email === email && u.password === pass);
+
+      if (!found) {
+        alert('Invalid email or password.');
+        return;
+      }
+      if (found.role !== role) {
+        alert(`Access Denied: You do not have permissions for the ${role} portal.`);
+        return;
+      }
+
+      db.currentUser = found;
+      saveDB(db);
+      showView(role + '_dashboard');
+    }
+
+    function logout() {
+      const db = getDB();
+      db.currentUser = null;
+      saveDB(db);
+      showView('landing');
+    }
+
+    // --- REQUESTER DASHBOARD ---
+    function renderRequester(root, db) {
+      const myReqs = db.requests.filter(r => r.requesterId === db.currentUser.id);
+      root.innerHTML = `
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div>
+            <h2 class="text-2xl font-bold text-slate-900">Requester Dashboard</h2>
+            <p class="text-xs text-slate-500">Department: ${db.currentUser.department}</p>
+          </div>
+          <button onclick="openNewRequestModal()" class="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold text-sm rounded-xl shadow-sm transition">+ New Service Request</button>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="p-4 border-b border-slate-100 font-bold text-slate-800">My Service Requests (${myReqs.length})</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-semibold">
+                <tr>
+                  <th class="p-3">ID</th>
+                  <th class="p-3">Title</th>
+                  <th class="p-3">Category</th>
+                  <th class="p-3">Priority</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3">Technician</th>
+                  <th class="p-3">Date</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${myReqs.map(r => `
+                  <tr class="hover:bg-slate-50/80">
+                    <td class="p-3 font-mono text-xs text-slate-500">#${r.id}</td>
+                    <td class="p-3 font-semibold text-slate-800">${r.title}</td>
+                    <td class="p-3 text-slate-600">${r.category}</td>
+                    <td class="p-3"><span class="text-xs px-2 py-0.5 rounded font-semibold ${r.priority === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}">${r.priority}</span></td>
+                    <td class="p-3"><span class="badge-${r.status} text-xs font-semibold px-2 py-0.5 rounded-full">${r.status}</span></td>
+                    <td class="p-3 text-slate-600 text-xs">${r.techName || '<em>Unassigned</em>'}</td>
+                    <td class="p-3 text-xs text-slate-400">${r.date}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- NEW REQUEST MODAL -->
+        <div id="new-req-modal" class="fixed inset-0 bg-slate-900/50 hidden z-50 flex items-center justify-center p-4">
+          <div class="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-lg font-bold text-slate-900">Submit Service Request</h3>
+              <button onclick="closeNewRequestModal()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+            </div>
+            <form onsubmit="submitRequest(event)" class="space-y-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Issue Title</label>
+                <input type="text" id="req-title" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none">
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Category</label>
+                  <select id="req-cat" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none">
+                    <option>Hardware</option><option>Network</option><option>Software</option><option>Facilities</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Priority</label>
+                  <select id="req-prio" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none">
+                    <option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Detailed Description</label>
+                <textarea id="req-desc" rows="3" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"></textarea>
+              </div>
+              <div class="flex justify-end space-x-2 pt-2">
+                <button type="button" onclick="closeNewRequestModal()" class="px-4 py-2 border rounded-lg text-xs font-semibold text-slate-600">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-sky-600 text-white rounded-lg text-xs font-semibold hover:bg-sky-700">Submit Ticket</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    function openNewRequestModal() { document.getElementById('new-req-modal').classList.remove('hidden'); }
+    function closeNewRequestModal() { document.getElementById('new-req-modal').classList.add('hidden'); }
+
+    function submitRequest(e) {
+      e.preventDefault();
+      const db = getDB();
+      const newReq = {
+        id: Math.floor(100 + Math.random() * 900),
+        title: document.getElementById('req-title').value.trim(),
+        category: document.getElementById('req-cat').value,
+        priority: document.getElementById('req-prio').value,
+        status: 'Pending',
+        requesterId: db.currentUser.id,
+        requesterName: db.currentUser.name,
+        techId: null,
+        techName: null,
+        description: document.getElementById('req-desc').value.trim(),
+        date: new Date().toISOString().split('T')[0]
+      };
+      db.requests.unshift(newReq);
+      db.notifications.unshift({ id: Date.now(), text: `New Request #${newReq.id} submitted for review.`, date: 'Just now' });
+      saveDB(db);
+      closeNewRequestModal();
+      showView('requester_dashboard');
+    }
+
+    // --- MANAGER DASHBOARD ---
+    function renderManager(root, db) {
+      const technicians = db.users.filter(u => u.role === 'technician');
+      root.innerHTML = `
+        <div class="mb-6">
+          <h2 class="text-2xl font-bold text-slate-900">Manager Command Center</h2>
+          <p class="text-xs text-slate-500">Approve, reject, prioritize, and assign personnel.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white p-4 rounded-xl border border-slate-200">
+            <span class="text-xs font-semibold text-slate-400">Total Requests</span>
+            <div class="text-2xl font-bold text-slate-800">${db.requests.length}</div>
+          </div>
+          <div class="bg-white p-4 rounded-xl border border-slate-200">
+            <span class="text-xs font-semibold text-amber-500">Pending Review</span>
+            <div class="text-2xl font-bold text-amber-600">${db.requests.filter(r => r.status === 'Pending').length}</div>
+          </div>
+          <div class="bg-white p-4 rounded-xl border border-slate-200">
+            <span class="text-xs font-semibold text-indigo-500">Assigned / In Progress</span>
+            <div class="text-2xl font-bold text-indigo-600">${db.requests.filter(r => ['Assigned', 'InProgress'].includes(r.status)).length}</div>
+          </div>
+          <div class="bg-white p-4 rounded-xl border border-slate-200">
+            <span class="text-xs font-semibold text-emerald-500">Completed</span>
+            <div class="text-2xl font-bold text-emerald-600">${db.requests.filter(r => r.status === 'Completed').length}</div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="p-4 border-b border-slate-100 font-bold text-slate-800">All Enterprise Requests</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-semibold">
+                <tr>
+                  <th class="p-3">ID</th>
+                  <th class="p-3">Requester</th>
+                  <th class="p-3">Title</th>
+                  <th class="p-3">Priority</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3">Assigned Tech</th>
+                  <th class="p-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${db.requests.map(r => `
+                  <tr class="hover:bg-slate-50/80">
+                    <td class="p-3 font-mono text-xs text-slate-500">#${r.id}</td>
+                    <td class="p-3 text-slate-700 text-xs font-medium">${r.requesterName}</td>
+                    <td class="p-3 font-semibold text-slate-800">${r.title}</td>
+                    <td class="p-3"><span class="text-xs px-2 py-0.5 rounded font-semibold ${r.priority === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}">${r.priority}</span></td>
+                    <td class="p-3"><span class="badge-${r.status} text-xs font-semibold px-2 py-0.5 rounded-full">${r.status}</span></td>
+                    <td class="p-3 text-xs">
+                      ${r.status === 'Pending' ? `
+                        <select onchange="assignTech(${r.id}, this.value)" class="text-xs border rounded p-1">
+                          <option value="">-- Assign Tech --</option>
+                          ${technicians.map(t => `<option value="${t.id}">${t.name} (${t.department})</option>`).join('')}
+                        </select>
+                      ` : (r.techName || '<em>None</em>')}
+                    </td>
+                    <td class="p-3 text-right space-x-1">
+                      ${r.status === 'Pending' ? `
+                        <button onclick="updateStatus(${r.id}, 'Approved')" class="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs">Approve</button>
+                        <button onclick="updateStatus(${r.id}, 'Rejected')" class="px-2 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded text-xs">Reject</button>
+                      ` : `<span class="text-xs text-slate-400">Processed</span>`}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateStatus(reqId, status) {
+      const db = getDB();
+      const r = db.requests.find(x => x.id === reqId);
+      if (r) {
+        r.status = status;
+        db.notifications.unshift({ id: Date.now(), text: `Request #${reqId} was ${status} by Manager.`, date: 'Just now' });
+        saveDB(db);
+        showView('manager_dashboard');
+      }
+    }
+
+    function assignTech(reqId, techId) {
+      if (!techId) return;
+      const db = getDB();
+      const r = db.requests.find(x => x.id === reqId);
+      const tech = db.users.find(u => u.id === parseInt(techId));
+      if (r && tech) {
+        r.techId = tech.id;
+        r.techName = tech.name;
+        r.status = 'Assigned';
+        db.notifications.unshift({ id: Date.now(), text: `Request #${reqId} assigned to technician ${tech.name}.`, date: 'Just now' });
+        saveDB(db);
+        showView('manager_dashboard');
+      }
+    }
+
+    // --- TECHNICIAN TERMINAL ---
+    function renderTechnician(root, db) {
+      const myWork = db.requests.filter(r => r.techId === db.currentUser.id);
+      root.innerHTML = `
+        <div class="flex justify-between items-center mb-6">
+          <div>
+            <h2 class="text-2xl font-bold text-slate-900">Technician Workspace</h2>
+            <p class="text-xs text-slate-500">Signed in as: ${db.currentUser.name} (${db.currentUser.department})</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="text-xs text-slate-500">Status:</span>
+            <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-full">${db.currentUser.status || 'Available'}</span>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+          <div class="p-4 border-b border-slate-100 font-bold text-slate-800">Assigned Work Orders (${myWork.length})</div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 text-xs uppercase font-semibold">
+                <tr>
+                  <th class="p-3">ID</th>
+                  <th class="p-3">Issue Title</th>
+                  <th class="p-3">Priority</th>
+                  <th class="p-3">Status</th>
+                  <th class="p-3">Requester Contact</th>
+                  <th class="p-3 text-right">Progress Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${myWork.map(w => `
+                  <tr class="hover:bg-slate-50/80">
+                    <td class="p-3 font-mono text-xs text-slate-500">#${w.id}</td>
+                    <td class="p-3 font-semibold text-slate-800">${w.title}</td>
+                    <td class="p-3"><span class="text-xs px-2 py-0.5 rounded font-semibold ${w.priority === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}">${w.priority}</span></td>
+                    <td class="p-3"><span class="badge-${w.status} text-xs font-semibold px-2 py-0.5 rounded-full">${w.status}</span></td>
+                    <td class="p-3 text-xs text-slate-600">${w.requesterName}</td>
+                    <td class="p-3 text-right">
+                      ${w.status === 'Assigned' ? `
+                        <button onclick="updateTechTask(${w.id}, 'InProgress')" class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-semibold">Start Work</button>
+                      ` : w.status === 'InProgress' ? `
+                        <button onclick="updateTechTask(${w.id}, 'Completed')" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold">Mark Resolved</button>
+                      ` : `<span class="text-xs text-emerald-600 font-bold">✓ Resolved</span>`}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function updateTechTask(reqId, status) {
+      const db = getDB();
+      const r = db.requests.find(x => x.id === reqId);
+      if (r) {
+        r.status = status;
+        db.notifications.unshift({ id: Date.now(), text: `Technician updated Request #${reqId} to ${status}.`, date: 'Just now' });
+        saveDB(db);
+        showView('technician_dashboard');
+      }
+    }
+
+    // --- NOTIFICATIONS ---
+    function toggleNotifs() {
+      const modal = document.getElementById('notif-modal');
+      modal.classList.toggle('hidden');
+      if (!modal.classList.contains('hidden')) {
+        const db = getDB();
+        const container = document.getElementById('notif-items');
+        container.innerHTML = db.notifications.map(n => `
+          <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+            <p class="text-slate-800 font-medium">${n.text}</p>
+            <span class="text-[10px] text-slate-400 mt-1 block">${n.date}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    function clearNotifs() {
+      const db = getDB();
+      db.notifications = [];
+      saveDB(db);
+      toggleNotifs();
+    }
+
+    // Initial Load
+    showView('landing');
+  </script>
+</body>
+</html>
